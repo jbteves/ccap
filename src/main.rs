@@ -18,6 +18,11 @@ fn main() {
                          .value_name("FILE")
                          .help("A file from whose tail you would like to \
                          calculate the offset"))
+                    .arg(Arg::with_name("block_offset")
+                         .long("block_offset")
+                         .takes_value(true)
+                         .value_name("OFFSET")
+                         .help("The number to add to all block numbers."))
                     .arg(Arg::with_name("INPUT")
                          .help("The file to calculate new offsets for")
                          .required(true))
@@ -27,6 +32,8 @@ fn main() {
                     .get_matches();
     let input = matches.value_of("INPUT").unwrap();
     let output = matches.value_of("OUTPUT").unwrap();
+    let block_offset = matches.value_of("block_offset").unwrap_or("0")
+        .parse::<usize>().unwrap();
 
     let mut total_offset: usize = 0;
     if let Some(offset) = matches.value_of("offset") {
@@ -35,8 +42,6 @@ fn main() {
     if let Some(tail_file) = matches.value_of("tail_from") {
         total_offset += get_offset(tail_file);
         }
-    else {
-        panic!("No offset given!");
-    }
-    offset_file(input, output, total_offset);
+    if total_offset == 0 { panic!("No offset given!"); }
+    offset_file(input, output, total_offset, block_offset);
 }

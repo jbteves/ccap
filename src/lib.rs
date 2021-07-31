@@ -189,11 +189,24 @@ pub fn tail_srt(text: &str) -> Option<SimpleTime> {
 }
 
 /// Write offsets of input file into a new output file
-pub fn offset_file(input: &str, output: &str, offset: usize) {
+pub fn offset_file(input: &str, output: &str, offset: usize, c_offset: usize) {
     if input == output { panic!("Input and output must be different!") }
     let in_contents = read_to_string(input).expect("Can't find file!");
     let new_contents = offset_str_stamps(&in_contents, offset);
-    fs::write(output, new_contents).expect("File write failed!");
+    // Kludge: add to counters in file as well
+    let mut new_contents2 = String::from("");
+    for l in new_contents.lines() {
+        if let Ok(c) = l.parse::<usize>() {
+            new_contents2.push_str(
+                format!("{}\n", c + c_offset).as_str()
+            );
+        }
+        else {
+            new_contents2.push_str(l);
+            new_contents2.push_str("\n");
+        }
+    }
+    fs::write(output, new_contents2).expect("File write failed!");
 }
 
 /// Get the offset from the tail of a file
