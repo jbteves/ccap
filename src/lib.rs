@@ -1,5 +1,8 @@
 /// Library to help sort out a few things
 
+use lazy_static::lazy_static;
+use regex::Regex;
+
 // Useful constants
 const MILLIS_PER_SECOND: usize = 1000;
 const MILLIS_PER_MINUTE: usize = 60 * MILLIS_PER_SECOND;
@@ -119,17 +122,74 @@ impl SimpleTime {
     /// Get milliseconds
     pub fn millisecond(&self) -> usize { self.milliseconds }
     /// Offset this timestamp by adding more milliseconds
-    pub fn offset(&mut self, offset: usize) -> () {
+    pub fn offset(&mut self, offset: usize) {
         *self = SimpleTime::from_milliseconds(
             self.to_milliseconds() + offset
         );
     }
 }
 
+
+// Define RE_SRT
+// Compile regex; expensive, so use lazy_static to avoid re-compiling
+lazy_static! {
+    static ref RE_SRT: Regex = Regex::new(
+        "[0-9][0-9]:[0-9][0-9]:[0-9][0-9][.,][0-9][0-9][0-9]"
+    ).unwrap();
+}
+
+/// Replace a string containing SimpleTime stamps with new, offset time
+/// stamps.
+pub fn offset_str_stamps(text: &str, offset: usize) -> String {
+    // Check to see if there are no matches; if so, exit early
+    if !RE_SRT.is_match(text) {
+        return String::from(text);
+    }
+    // Create vector of matches
+    let mut timestamp_matches: Vec<&str> = vec!();
+    for m in RE_SRT.find_iter(text) {
+        timestamp_matches.push(
+            &text[m.start()..m.end()]
+        );
+    }
+    // Create vector of replacements
+    let mut timestamp_replacements: Vec<String> = Vec::with_capacity(
+        timestamp_matches.len()
+    );
+    for m in timestamp_matches.iter() {
+        let mut st = SimpleTime::from_srt(m);
+        st.offset(offset);
+        timestamp_replacements.push(st.to_str());
+    }
+    // Get all of the non-matching text
+    let other_text: Vec<&str> = RE_SRT.split(text).collect();
+    // Combine replacement stamps and other text
+    let mut replacement = String::with_capacity(text.len());
+    let mut tsr_iter = timestamp_replacements.iter();
+    for txt in other_text.iter() {
+        replacement.push_str(txt);
+        match tsr_iter.next() {
+            Some(content) => replacement.push_str(content),
+            _ => ()
+        };
+    }
+    replacement
+}
+
+/// Get the last SRT timestamp in a string
+pub fn tail_srt(text: &str) -> Option<SimpleTime> {
+    match RE_SRT.find_iter(text).last() {
+        Some(stamp) => Some(
+            SimpleTime::from_srt(&text[stamp.start()..stamp.end()])
+        ),
+        None => None
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    mod srt {
+    mod simple_time {
         #[test]
         #[should_panic(expected = "Time cat is length 3, should be 12")]
         fn from_str_fails_length() {
@@ -166,6 +226,32 @@ mod test {
             let mut st = super::SimpleTime::from_srt("00:00:00.000");
             st.offset(MILLS);
             assert_eq!(st.to_milliseconds(), 86057837);
+        }
+    }
+    mod srt {
+        #[test]
+        fn test_replace_no_match() {
+            let s = super::offset_str_stamps("cat", 100);
+            assert_eq!(s, "cat");
+        }
+        #[test]
+        fn test_replace_two_match() {
+            let s = super::offset_str_stamps(
+                "(00:00:00,000) --> (00:00:01,543)",
+                100
+            );
+            assert_eq!(s, "(00:00:00,100) --> (00:00:01,643)");
+        }
+        #[test]
+        fn test_tail_stamp() {
+            let t = super::tail_srt(
+                "(00:00:00,100) --> (00:00:01,643)"
+            ).unwrap();
+            assert_eq!(t.to_milliseconds(), 1643);
+        }
+        #[test]
+        fn test_tail_stamp_no_match() {
+            assert!(super::tail_srt("").is_none());
         }
     }
 }
