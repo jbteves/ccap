@@ -1,5 +1,7 @@
 /// Library to help sort out a few things
 
+use std::fs::{self, read_to_string};
+
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -186,6 +188,22 @@ pub fn tail_srt(text: &str) -> Option<SimpleTime> {
     }
 }
 
+/// Write offsets of input file into a new output file
+pub fn offset_file(input: &str, output: &str, offset: usize) {
+    if input == output { panic!("Input and output must be different!") }
+    let in_contents = read_to_string(input).expect("Can't find file!");
+    let new_contents = offset_str_stamps(&in_contents, offset);
+    fs::write(output, new_contents).expect("File write failed!");
+}
+
+/// Get the offset from the tail of a file
+pub fn get_offset(input: &str) -> usize {
+    tail_srt(&read_to_string(input).expect("Can't find file!"))
+        .expect("File contains no timestamps to generate tail!")
+        .to_milliseconds()
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -252,6 +270,11 @@ mod test {
         #[test]
         fn test_tail_stamp_no_match() {
             assert!(super::tail_srt("").is_none());
+        }
+        #[test]
+        #[should_panic]
+        fn test_offset_file() {
+            super::offset_file("file.txt", "file.txt", 0);
         }
     }
 }
