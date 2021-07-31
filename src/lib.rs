@@ -118,6 +118,12 @@ impl SimpleTime {
     pub fn second(&self) -> usize { self.seconds }
     /// Get milliseconds
     pub fn millisecond(&self) -> usize { self.milliseconds }
+    /// Offset this timestamp by adding more milliseconds
+    pub fn offset(&mut self, offset: usize) -> () {
+        *self = SimpleTime::from_milliseconds(
+            self.to_milliseconds() + offset
+        );
+    }
 }
 
 #[cfg(test)]
@@ -153,6 +159,13 @@ mod test {
             assert_eq!(st.to_milliseconds(), 86057837);
             let st2 = super::SimpleTime::from_milliseconds(86897);
             assert_eq!(st2.to_milliseconds(), 86897);
+        }
+        #[test]
+        fn test_offset() {
+            const MILLS: usize = 86057837;
+            let mut st = super::SimpleTime::from_srt("00:00:00.000");
+            st.offset(MILLS);
+            assert_eq!(st.to_milliseconds(), 86057837);
         }
     }
 }
