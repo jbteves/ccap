@@ -1,9 +1,7 @@
 use clap::{App, Arg};
 
-use offset_caption::{get_offset, offset_file};
-
 fn main() {
-    let matches = App::new("offset_srt")
+    let _matches = App::new("offset_srt")
                     .version("0.1")
                     .author("Joshua B. Teves <joshua.teves@nih.gov>")
                     .arg(Arg::with_name("offset")
@@ -30,18 +28,4 @@ fn main() {
                          .help("The file to write with new offsets")
                          .required(true))
                     .get_matches();
-    let input = matches.value_of("INPUT").unwrap();
-    let output = matches.value_of("OUTPUT").unwrap();
-    let block_offset = matches.value_of("block_offset").unwrap_or("0")
-        .parse::<usize>().unwrap();
-
-    let mut total_offset: usize = 0;
-    if let Some(offset) = matches.value_of("offset") {
-        total_offset += offset.parse::<usize>().unwrap();
-    }
-    if let Some(tail_file) = matches.value_of("tail_from") {
-        total_offset += get_offset(tail_file);
-        }
-    if total_offset == 0 { panic!("No offset given!"); }
-    offset_file(input, output, total_offset, block_offset);
 }
