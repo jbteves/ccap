@@ -162,9 +162,6 @@ impl VttParser {
     }
     /// Parse a VTT timestamp
     fn block_timestamp(s: &str) -> Result<SimpleTime, VttParserError> {
-        // TODO: remove
-        println!("Processing {}", s);
-
         let VTT_TIMESTAMP_LEN: usize = 12;
         if s.len() != VTT_TIMESTAMP_LEN {
             return Err(VttParserError::InvalidTimestamp(String::from(s)));
@@ -216,8 +213,6 @@ impl VttParser {
                 return Err(VttParserError::InvalidTimestamp(String::from(s)));
             },
         };
-        // TODO: remove
-        println!("Got numbers: {}:{}:{}.{}", hours, minutes, seconds, milliseconds);
 
         Ok(
             SimpleTime::from_parts(
@@ -235,47 +230,51 @@ impl VttParser {
             return Err(VttParserError::UnexpectedEndOfFile);
         }
         if s.chars().nth(0).unwrap().is_numeric() {
-            // Make sure we have exactly three "words"
-            let total_words = s.split(' ').count();
-            if total_words == 3 {
-                // We're good to go, probably
-                let first = s.split(' ').nth(0);
-                let second = s.split(' ').nth(1);
-                let third = s.split(' ').nth(2);
-                if let Some(ts1) = first {
-                    if let Some("-->") = second {
-                        if let Some(ts2) = third {
-                            // Need to process the timestamps
-                            let start = VttParser::block_timestamp(ts1)?;
-                            let end = VttParser::block_timestamp(ts2)?;
-                            Ok((
-                                None,
-                                start,
-                                end))
+            // Pass entire string to have timestamps parsed
+            let (start, end) = VttParser::block_header_timestamps(s)?;
+            return Ok((None, start, end));
+        } else {
+            // TODO: add name checking
+            panic!("In progress");
+        }
+    }
+    /// Parse the remainder of a line for start, end timestamps
+    fn block_header_timestamps(s: &str) -> Result<(SimpleTime, SimpleTime), VttParserError> {
+        // Make sure we have exactly three "words"
+        let total_words = s.split(' ').count();
+        if total_words == 3 {
+            // We're good to go, probably
+            let first = s.split(' ').nth(0);
+            let second = s.split(' ').nth(1);
+            let third = s.split(' ').nth(2);
+            if let Some(ts1) = first {
+                if let Some("-->") = second {
+                    if let Some(ts2) = third {
+                        // Need to process the timestamps
+                        let start = VttParser::block_timestamp(ts1)?;
+                        let end = VttParser::block_timestamp(ts2)?;
+                        return Ok((start, end));
 
-                        } else {
-                            return Err(
-                                VttParserError::InvalidTimestamp(
-                                    String::from(s)));
-                        }
                     } else {
                         return Err(
                             VttParserError::InvalidTimestamp(
                                 String::from(s)));
                     }
                 } else {
-                    return Err(VttParserError::InvalidTimestamp(
-                        String::from(s)));
+                    return Err(
+                        VttParserError::InvalidTimestamp(
+                            String::from(s)));
                 }
             } else {
-                return Err(
-                    VttParserError::InvalidTimestamp(String::from(s)));
+                return Err(VttParserError::InvalidTimestamp(
+                    String::from(s)));
             }
         } else {
-            // TODO: add name checking
-            panic!("In progress");
+            return Err(
+                VttParserError::InvalidTimestamp(String::from(s)));
         }
     }
+
 }
 
 /// Error type for VttParser
