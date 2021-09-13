@@ -234,8 +234,37 @@ impl VttParser {
             let (start, end) = VttParser::block_header_timestamps(s)?;
             return Ok((None, start, end));
         } else {
-            // TODO: add name checking
-            panic!("In progress");
+            // Find first timestamp
+            let first_loc = match s.find(char::is_numeric) {
+                Some(n) => n,
+                None => Err(VttParserError::BlockHeaderInvalid(
+                        String::from(s)))?,
+            };
+            // Make sure we have a space before
+            match s.get(first_loc - 1..first_loc) {
+                Some(" ") => {},
+                _ => {
+                    return Err(VttParserError::BlockHeaderInvalid(String::from(s)));
+                },
+            };
+            // Find the name, which is everything preceding the space
+            let name = match s.get(..first_loc - 1) {
+                Some(x) => x,
+                _ => {
+                    return Err(VttParserError::BlockHeaderInvalid(
+                            String::from(s)));
+                },
+            };
+            let (start, end) = VttParser::block_header_timestamps(
+                match s.get(first_loc..) {
+                    Some(s) => s,
+                    None => {
+                        return Err(VttParserError::BlockHeaderInvalid(
+                            String::from(s)));
+                    },
+                }
+            )?;
+            return Ok((Some(name.to_string()), start, end));
         }
     }
     /// Parse the remainder of a line for start, end timestamps
@@ -378,8 +407,13 @@ mod test {
                     assert_eq!(s, "Pete Molfese");
                     assert_eq!(start.to_milliseconds(), 0);
                     assert_eq!(end.to_milliseconds(), 1001);
-                }
-                _ => panic!("Test failed when given name"),
+                },
+                Ok((None, start, end)) => {
+                    panic!("Did not parse out any names");
+                },
+                Err(e) => {
+                    panic!("Test failed with error {:?}", e );
+                },
             }
         }
         #[test]
