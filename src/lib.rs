@@ -50,6 +50,7 @@ const MILLIS_PER_HOUR: usize = 60 * MILLIS_PER_MINUTE;
 /// assert_eq!(t.second(), 1);
 /// assert_eq!(t.millisecond(), 0);
 /// ```
+#[derive(Debug)]
 pub struct SimpleTime {
     hours: usize,
     minutes: usize,
@@ -422,10 +423,12 @@ mod test {
             let test_str_3 = "--> 00:00:01.001";
             let r = VttParser::block_header(test_str_3);
             match r {
-                Ok(_) => panic!("Things should not be okay"),
+                Ok((name, start, end)) => {
+                    panic!("Parsed {:?}, {:?}, {:?} when should have failed", name, start, end);
+                },
                 Err(e) => {
                     match e {
-                        VttParserError::BlockHeaderInvalid(s) => {},
+                        VttParserError::InvalidTimestamp(s) => {},
                         _ => panic!("Test failed in unexpected way"),
                     };
                 },
