@@ -151,6 +151,29 @@ impl fmt::Display for NegativeSimpleTime {
 pub struct VttParser;
 
 impl VttParser {
+    /// Parse the header
+    fn header(s: &str) -> Result<(Option<String>, usize), VttParserError> {
+        // Find "WEBVTT"
+        let is_webvtt = |x| x == "WEBVTT";
+
+        if let Some(n) = s.lines().position(is_webvtt) {
+            let header_opt = match n {
+                0 | 1 | 2 => None,
+                nn => {
+                    // Fetch all the lines preceding N -2
+                    let header = s.lines().take(nn - 2)
+                        .map(|a| a.to_string())
+                        .collect::<Vec<String>>()
+                        .join("\n");
+                    Some(header)
+                },
+            };
+            Ok((header_opt, n))
+        }
+        else {
+            Err(VttParserError::UnexpectedEndOfFile)
+        }
+    }
     /// Parse a block
     fn block(s: &str) -> Result<CaptionBlock, VttParserError> {
         // Make sure we have exactly four lines to parse
@@ -190,8 +213,8 @@ impl VttParser {
     }
     /// Parse a VTT timestamp
     fn block_timestamp(s: &str) -> Result<SimpleTime, VttParserError> {
-        let VTT_TIMESTAMP_LEN: usize = 12;
-        if s.len() != VTT_TIMESTAMP_LEN {
+        let vtt_timestamp_len: usize = 12;
+        if s.len() != vtt_timestamp_len {
             return Err(VttParserError::InvalidTimestamp(String::from(s)));
         }
         // We have correct length, parse
@@ -470,6 +493,26 @@ mod test {
     mod vtt_parser {
         use super::{VttParser, VttParserError};
         #[test]
+        fn parse_header() {
+            let h1 = "This is an event!";
+            let h2 = "Loads of cool presenters, all fabulous!";
+            let fake_block = format!("\n{}\n{}\n{}\n", 1, " ", " ");
+            let s = format!("{}\n{}\n\n\nWEBVTT\n{}", h1, h2, fake_block);
+            let (header, line_number) = VttParser::header(&s)
+                .expect("Should not have failed to parse!");
+            assert_eq!(header, Some(format!("{}\n{}", h1, h2)));
+            assert_eq!(line_number, 4);
+        }
+        #[test]
+        fn parse_no_header() {
+            let fake_block = format!("\n{}\n{}\n{}\n", 1, " ", " ");
+            let s = format!("WEBVTT\n{}", fake_block);
+            let (header, line_number) = VttParser::header(&s)
+                 .expect("Should not have failed to parse!");
+            assert_eq!(header, None);
+            assert_eq!(line_number, 0);
+        }
+        #[test]
         fn test_parse_block_no() {
             let n = VttParser::block_number("1").expect("");
             assert_eq!(n, 1);
@@ -514,7 +557,7 @@ mod test {
                     assert_eq!(start.to_milliseconds(), 0);
                     assert_eq!(end.to_milliseconds(), 1001);
                 },
-                Ok((None, start, end)) => {
+                Ok((None, _start, _end)) => {
                     panic!("Did not parse out any names");
                 },
                 Err(e) => {
@@ -533,7 +576,7 @@ mod test {
                 },
                 Err(e) => {
                     match e {
-                        VttParserError::InvalidTimestamp(s) => {},
+                        VttParserError::InvalidTimestamp(_s) => {},
                         _ => panic!("Test failed in unexpected way"),
                     };
                 },
@@ -552,7 +595,7 @@ mod test {
             let start = "00:00:00.000";
             let end = "00:00:01.000";
             let text = "The quick brown fox jumps over the lazy dog";
-            let mut test_input = format!("\n{}\n{} --> {}\n{}\n", 1, start, end, text);
+            let test_input = format!("\n{}\n{} --> {}\n{}\n", 1, start, end, text);
             let cb = VttParser::block(&test_input)
                 .expect("Failed test");
             assert_eq!(cb.start().to_milliseconds(), 0);
