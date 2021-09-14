@@ -517,6 +517,12 @@ impl CaptionBlock {
     pub fn end(&self) -> SimpleTime {
         self.end.clone()
     }
+    /// Offset the times in this caption block
+    pub fn offset_milliseconds(&mut self, n: isize) -> Result<(), NegativeSimpleTime> {
+        self.start.offset(n)?;
+        self.end.offset(n)?;
+        Ok(())
+    }
 }
 
 /// Error types for CaptionBlock
@@ -560,6 +566,30 @@ impl Caption {
     pub fn time_tail(&self) -> usize {
         self.blocks.iter().last().unwrap().end.to_milliseconds()
     }
+    /// Concatenate captions and generate new one; does not retain header information.
+    /// This is because concatenating headers doesn't necessarily make sense.
+    pub fn concatenate(captions: Vec<Caption>) -> Caption {
+        let total_blocks = captions.iter()
+            .map(|c| c.blocks.iter().count())
+            .sum();
+        let mut cb: Vec<CaptionBlock> = Vec::with_capacity(total_blocks);
+        let mut last_ts: usize = 0;
+        for cap in captions.iter() {
+            for b in cap.blocks.iter() {
+                let mut copy_b = b.clone();
+                // Add on the time from the previous caption
+                copy_b.offset_milliseconds(last_ts as isize)
+                    .expect("Something logically impossible has occured");
+                cb.push(copy_b);
+            }
+            // Update the last time
+            last_ts += cap.time_tail();
+        }
+        Caption {
+            header: None,
+            blocks: cb,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -589,6 +619,72 @@ mod test {
                 Ok(()) => panic!("Test failure; was okay going negative"),
                 Err(_) => assert_eq!(0, 0),
             };
+        }
+    }
+    mod caption {
+        use super::*;
+        #[test]
+        fn offset_caption() {
+            let mut c = Caption {
+                header: None,
+                blocks: vec!(CaptionBlock {
+                    speaker: None,
+                    start: SimpleTime::from_milliseconds(0),
+                    end: SimpleTime::from_milliseconds(1000),
+                    text: "John Dies at the End".to_string(),
+                })
+            };
+            c.offset_milliseconds(500);
+            assert_eq!(c.blocks[0].start.to_milliseconds(), 500);
+            assert_eq!(c.blocks[0].end.to_milliseconds(), 1500);
+        }
+        #[test]
+        fn concatenate_captions() {
+            let c1 = Caption {
+                header: None,
+                blocks: vec!(CaptionBlock {
+                    speaker: None,
+                    start: SimpleTime::from_milliseconds(0),
+                    end: SimpleTime::from_milliseconds(1000),
+                    text: "John Dies at the End".to_string(),
+                })
+            };
+            let c2 = Caption {
+                header: None,
+                blocks: vec!(CaptionBlock {
+                    speaker: None,
+                    start: SimpleTime::from_milliseconds(0),
+                    end: SimpleTime::from_milliseconds(1000),
+                    text: "John is dead now".to_string(),
+                })
+            };
+            let c3 = Caption {
+                header: None,
+                blocks: vec!(
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(0),
+                        end: SimpleTime::from_milliseconds(1000),
+                        text: "Go read the book!".to_string(),
+                    },
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(1200),
+                        end: SimpleTime::from_milliseconds(2400),
+                        text: "Seriously.".to_string(),
+                    },
+                ),
+            };
+            let c = Caption::concatenate(vec!(c1, c2, c3));
+            assert_eq!(c.blocks[0].start.to_milliseconds(), 0);
+            assert_eq!(c.blocks[0].end.to_milliseconds(), 1000);
+            assert_eq!(c.blocks[1].start.to_milliseconds(), 1000);
+            assert_eq!(c.blocks[1].end.to_milliseconds(), 2000);
+            assert_eq!(c.blocks[2].start.to_milliseconds(), 2000);
+            assert_eq!(c.blocks[2].end.to_milliseconds(), 3000);
+            assert_eq!(c.blocks[3].start.to_milliseconds(), 3200);
+            assert_eq!(c.blocks[3].end.to_milliseconds(), 4400);
+
         }
     }
     mod vtt_parser {
