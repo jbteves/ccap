@@ -1,8 +1,6 @@
 /// Library to help sort out a few things
 
-use std::{
-    fmt,
-};
+use std::fmt;
 
 // Useful constants
 const MILLIS_PER_SECOND: usize = 1000;
@@ -50,7 +48,7 @@ const MILLIS_PER_HOUR: usize = 60 * MILLIS_PER_MINUTE;
 /// assert_eq!(t.second(), 1);
 /// assert_eq!(t.millisecond(), 0);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SimpleTime {
     hours: usize,
     minutes: usize,
@@ -153,6 +151,35 @@ impl fmt::Display for NegativeSimpleTime {
 pub struct VttParser;
 
 impl VttParser {
+    /// Parse a block
+    fn block(s: &str) -> Result<CaptionBlock, VttParserError> {
+        // Make sure we have exactly four lines to parse
+        if s.lines().count() != 4 {
+            return Err(VttParserError::UnexpectedEndOfFile);
+        }
+
+        // Make an iterator and view line by line
+        let mut s_iter = s.lines();
+        match s_iter.next() {
+            Some("") => {},
+            Some(s) => {
+                return Err(VttParserError::ExpectedBlankLine(s.to_string()));
+            },
+            _ => { return Err(VttParserError::UnexpectedEndOfFile) },
+        }
+        let block_line = s_iter.next().ok_or(VttParserError::UnexpectedEndOfFile)?;
+        let _ = VttParser::block_number(block_line)?;
+        let header_line = s_iter.next().ok_or(VttParserError::UnexpectedEndOfFile)?;
+        let (speaker, start, end) = VttParser::block_header(header_line)?;
+        let text_line = s_iter.next().ok_or(VttParserError::UnexpectedEndOfFile)?;
+        let text = VttParser::block_text(text_line);
+        Ok(CaptionBlock {
+            speaker,
+            start,
+            end,
+            text,
+        })
+    }
     /// Parse a string slice into a block number
     fn block_number(s: &str) -> Result<usize, VttParserError> {
         let r = s.parse::<usize>();
@@ -304,13 +331,17 @@ impl VttParser {
                 VttParserError::InvalidTimestamp(String::from(s)));
         }
     }
-
+    /// Parse the text of a block; thin wrapper for to_string()
+    fn block_text(s: &str) -> String {
+        s.to_string()
+    }
 }
 
 /// Error type for VttParser
 #[derive(Debug, Clone)]
 pub enum VttParserError {
     UnexpectedEndOfFile,
+    ExpectedBlankLine(String),
     ExpectedBlockNumber(String),
     BlockHeaderInvalid(String),
     InvalidTimestamp(String),
@@ -320,6 +351,9 @@ impl fmt::Display for VttParserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             VttParserError::UnexpectedEndOfFile => write!(f, "unexpected end of file"),
+            VttParserError::ExpectedBlankLine(s) => {
+                write!(f, "expected blank line, got {}", s)
+            },
             VttParserError::ExpectedBlockNumber(s) => {
                 write!(f, "expected VTT block number, got {}", s)
             },
@@ -331,6 +365,77 @@ impl fmt::Display for VttParserError {
             },
         }
     }
+}
+
+/// Struct for storing caption blocks.
+/// Caption blocks contain an optional speaker, start and end times, and the text that will be
+/// displayed on the screen during the block.
+/// Not particularly useful on their own.
+///
+/// # Examples
+/// Create a CaptionBlock with no speaker, from 0 seconds to 1 second, and a text of "Hello!"
+/// ```
+/// use offset_caption::{CaptionBlock, SimpleTime};
+///
+/// let block = CaptionBlock::from(
+///     None,
+///     SimpleTime::from_milliseconds(0),
+///     SimpleTime::from_milliseconds(1000),
+///     String::from("Hello!")).unwrap();
+/// assert_eq!(block.speaker(), None);
+/// assert_eq!(block.start().second(), 0);
+/// assert_eq!(block.end().second(), 1);
+/// assert_eq!(block.text(), "Hello!");
+/// ```
+#[derive(Debug)]
+pub struct CaptionBlock {
+    speaker: Option<String>,
+    start: SimpleTime,
+    end: SimpleTime,
+    text: String,
+}
+
+impl CaptionBlock {
+    /// Construct a CaptionBlock from its parts
+    pub fn from(speaker: Option<String>, start: SimpleTime, end: SimpleTime, text: String) -> Result<CaptionBlock, CaptionBlockError> {
+        // Verify start is less than end
+        let diff = (end.to_milliseconds() as i128) - (start.to_milliseconds() as i128);
+        if diff < 0 {
+            Err(CaptionBlockError::EndsBeforeStart(start, end))
+        }
+        else {
+            Ok(
+                CaptionBlock {
+                    speaker,
+                    start,
+                    end,
+                    text,
+                }
+            )
+        }
+    }
+    /// Get a copy of this block's text
+    pub fn text(&self) -> String {
+        self.text.clone()
+    }
+    /// Get a copy of this block's speaker
+    pub fn speaker(&self) -> Option<String> {
+        self.speaker.clone()
+    }
+    /// Get a copy of this caption block's start time
+    pub fn start(&self) -> SimpleTime {
+        self.start.clone()
+    }
+    /// Get a copy of this caption block's end time
+    pub fn end(&self) -> SimpleTime {
+        self.end.clone()
+    }
+}
+
+/// Error types for CaptionBlock
+#[derive(Debug)]
+pub enum CaptionBlockError {
+    EndsBeforeStart(SimpleTime, SimpleTime)
 }
 
 #[cfg(test)]
@@ -432,6 +537,36 @@ mod test {
                         _ => panic!("Test failed in unexpected way"),
                     };
                 },
+            };
+        }
+        #[test]
+        fn test_parse_block_text() {
+            // Test to make sure we parse a line of text
+            let test_str = "The quick brown fox jumps over the lazy dog.";
+            let text = VttParser::block_text(test_str);
+            assert_eq!(text, test_str.to_string());
+        }
+        #[test]
+        fn test_parse_block() {
+            // Test to make sure we parse an entire block
+            let start = "00:00:00.000";
+            let end = "00:00:01.000";
+            let text = "The quick brown fox jumps over the lazy dog";
+            let mut test_input = format!("\n{}\n{} --> {}\n{}\n", 1, start, end, text);
+            let cb = VttParser::block(&test_input)
+                .expect("Failed test");
+            assert_eq!(cb.start().to_milliseconds(), 0);
+            assert_eq!(cb.end().to_milliseconds(), 1000);
+            assert_eq!(cb.speaker(), None);
+            assert_eq!(cb.text(), text);
+        }
+        #[test]
+        fn test_parse_block_fails_insufficient_lines() {
+            // Test to make sure we fail for no blank
+            let x = VttParser::block("thing\n");
+            match x {
+                Err(VttParserError::UnexpectedEndOfFile) => {},
+                _ => panic!("Didn't get unexpected EOF {:?}", x),
             };
         }
     }
