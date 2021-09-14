@@ -544,6 +544,14 @@ impl Caption {
             blocks: blocks,
         }
     }
+    /// Offset all of the timestamps in this caption
+    pub fn offset_milliseconds(&mut self, n: isize) -> Result<(), NegativeSimpleTime> {
+        for b in self.blocks.iter_mut() {
+            b.start.offset(n)?;
+            b.end.offset(n)?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
