@@ -552,6 +552,14 @@ impl Caption {
         }
         Ok(())
     }
+    /// Get the first time in milliseconds from a caption
+    pub fn time_head(&self) -> usize {
+        self.blocks[0].start.to_milliseconds()
+    }
+    /// Get the last time in milliseconds from a caption
+    pub fn time_tail(&self) -> usize {
+        self.blocks.iter().last().unwrap().end.to_milliseconds()
+    }
 }
 
 #[cfg(test)]
