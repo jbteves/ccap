@@ -1,6 +1,6 @@
 use std::error::Error;
 use clap::{App, Arg, SubCommand};
-use offset_caption::{VttParser, VttWriter};
+use offset_caption::{VttParser, VttWriter, Caption};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("cptcaption")
@@ -34,6 +34,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .arg(Arg::with_name("subtract")
                              .long("subtract")
                              .help("Subtract instead of add offset")))
+                    .subcommand(
+                        SubCommand::with_name("concatenate")
+                        .about("Concatenate multiple caption files")
+                        .arg(Arg::with_name("OUTPUT")
+                             .required(true)
+                             .takes_value(true)
+                             .help("The output filename"))
+                        .arg(Arg::with_name("INPUT")
+                             .required(true)
+                             .takes_value(true)
+                             .min_values(2)
+                             .help("The files to concatenate")))
                     .get_matches();
    
     // Get the subcommand to run and run it
@@ -66,6 +78,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut cap = VttParser::from_file(&input)?;
         cap.offset_milliseconds(offset)?;
         VttWriter::to_file(&output, &cap)?;
+    }
+    if let Some(concatenate_matches) = matches.subcommand_matches("concatenate") {
+        let output = concatenate_matches.value_of("OUTPUT").unwrap();
+        let files: Vec<&str> = concatenate_matches.values_of("INPUT")
+            .unwrap()
+            .collect();
+        let mut captions: Vec<Caption> = Vec::with_capacity(files.len());
+        for f in files.iter() {
+            captions.push(VttParser::from_file(&f)?);
+        }
+        let mega_caption = Caption::concatenate(captions);
+        VttWriter::to_file(&output, &mega_caption)?;
     }
 
     Ok(())
