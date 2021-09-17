@@ -1,31 +1,26 @@
-use clap::{App, Arg};
+use std::error::Error;
+use clap::{App, Arg, SubCommand};
+use offset_caption::{ParseFrom, VttParser};
 
-fn main() {
-    let _matches = App::new("offset_srt")
+fn main() -> Result<(), Box<dyn Error>> {
+    let matches = App::new("cptcaption")
                     .version("0.1")
                     .author("Joshua B. Teves <joshua.teves@nih.gov>")
-                    .arg(Arg::with_name("offset")
-                         .long("offset")
-                         .takes_value(true)
-                         .value_name("OFFSET")
-                         .help("The offset time in milliseconds to be \
-                         applied"))
-                    .arg(Arg::with_name("tail_from")
-                         .long("tail_from")
-                         .takes_value(true)
-                         .value_name("FILE")
-                         .help("A file from whose tail you would like to \
-                         calculate the offset"))
-                    .arg(Arg::with_name("block_offset")
-                         .long("block_offset")
-                         .takes_value(true)
-                         .value_name("OFFSET")
-                         .help("The number to add to all block numbers."))
-                    .arg(Arg::with_name("INPUT")
-                         .help("The file to calculate new offsets for")
-                         .required(true))
-                    .arg(Arg::with_name("OUTPUT")
-                         .help("The file to write with new offsets")
-                         .required(true))
+                    .subcommand(
+                        SubCommand::with_name("info")
+                        .about("Get information about the caption file")
+                        .arg(Arg::with_name("INPUT")
+                             .required(true)
+                             .takes_value(true)
+                             .help("The file to get information for")))
                     .get_matches();
+   
+    // Get the subcommand to run and run it
+    if let Some(info_matches) = matches.subcommand_matches("info") {
+        let input = info_matches.value_of("INPUT").unwrap();
+        let caption = VttParser::parse(ParseFrom::File(&input))?;
+        println!("{:?}", caption);
+    }
+
+    Ok(())
 }
