@@ -132,16 +132,12 @@ impl SimpleTime {
 #[derive(Debug, Clone)]
 pub struct NegativeSimpleTime;
 
+impl Error for NegativeSimpleTime {}
+
 impl fmt::Display for NegativeSimpleTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "attempted to create negative SimpleTime")
     }
-}
-
-/// Enum for passing either a file or a string to to be parsed
-pub enum ParseFrom<'a> {
-    File(&'a str),
-    Content(&'a str),
 }
 
 /// Type for parsing VTT caption files.
@@ -157,21 +153,14 @@ pub enum ParseFrom<'a> {
 pub struct VttParser;
 
 impl VttParser {
-    /// Parse content into a Caption
-    pub fn parse(from: ParseFrom) -> Result<Caption, VttParserError> {
-        let contents = match from {
-            ParseFrom::File(f) => {
-                match fs::read_to_string(f) {
-                    Ok(s) => s,
-                    _ => {
-                        return Err(
-                            VttParserError::FileNotReadable(f.to_string())
-                        );
-                    },
-                }
-            },
-            ParseFrom::Content(c) => c.to_string(),
-        };
+    /// Parse File into a Caption
+    pub fn from_file(fname: &str) -> Result<Caption, Box<dyn Error>> {
+        let s = fs::read_to_string(fname)?;
+        let cap = VttParser::parse(&s)?;
+        Ok(cap)
+    }
+    /// Parse a Caption
+    pub fn parse(contents: &str) -> Result<Caption, VttParserError> {
         // First, find the header
         let (header, vtt_line) = VttParser::header(&contents)?;
         let start_line = vtt_line + 1;
@@ -272,7 +261,7 @@ impl VttParser {
         }
     }
     /// Parse a VTT timestamp
-    fn block_timestamp(s: &str) -> Result<SimpleTime, VttParserError> {
+    pub fn block_timestamp(s: &str) -> Result<SimpleTime, VttParserError> {
         let vtt_timestamp_len: usize = 12;
         if s.len() != vtt_timestamp_len {
             return Err(VttParserError::InvalidTimestamp(String::from(s)));
@@ -455,7 +444,64 @@ impl fmt::Display for VttParserError {
 
 impl Error for VttParserError {}
 
-//k Struct for storing caption blocks.
+/// Associated Functions for VTT writing
+pub struct VttWriter;
+
+impl VttWriter {
+    /// Write a full VTT file to disk
+    pub fn to_file(fname: &str, cap: &Caption) -> Result<(), Box<dyn Error>> {
+        fs::write(fname, VttWriter::write(&cap))?;
+        Ok(())
+    }
+    /// Write a full VTT file to a string
+    pub fn write(cap: &Caption) -> String {
+        let mut components: Vec<String> = Vec::with_capacity(cap.blocks.len() + 1);
+        components.push(VttWriter::header(&cap));
+        let mut block_num = 1;
+
+        for block in cap.blocks.iter() {
+            components.push(VttWriter::block(block, block_num));
+            block_num += 1;
+        }
+        components.join("\n")
+    }
+    /// Write a VTT block
+    fn block(cb: &CaptionBlock, n: usize) -> String {
+        let ts_start = VttWriter::timestamp(&cb.start);
+        let ts_end = VttWriter::timestamp(&cb.end);
+
+        format!(
+            "{}\n{}\n{}\n",
+            n,
+            match &cb.speaker {
+                Some(person) => format!("{} {} --> {}", person, ts_start, ts_end),
+                None => format!("{} --> {}", ts_start, ts_end),
+            },
+            cb.text
+        )
+    }
+    /// Write a VTT timestamp
+    fn timestamp(t: &SimpleTime) -> String {
+        format!(
+            "{:02}:{:02}:{:02}.{:03}",
+            t.hour(),
+            t.minute(),
+            t.second(),
+            t.millisecond()
+        )
+    }
+    /// Write a VTT header
+    fn header(cap: &Caption) -> String {
+        let webvtt = "WEBVTT\n";
+        match &cap.header {
+            Some(s) => format!("{}\n\n{}", s, webvtt),
+            None => webvtt.to_string(),
+        }
+    }
+}
+
+        
+
 /// Caption blocks contain an optional speaker, start and end times, and the text that will be
 /// displayed on the screen during the block.
 /// Not particularly useful on their own.
@@ -636,7 +682,7 @@ mod test {
                     text: "John Dies at the End".to_string(),
                 })
             };
-            c.offset_milliseconds(500);
+            c.offset_milliseconds(500).expect("Should be fine");
             assert_eq!(c.blocks[0].start.to_milliseconds(), 500);
             assert_eq!(c.blocks[0].end.to_milliseconds(), 1500);
         }
@@ -689,6 +735,67 @@ mod test {
 
         }
     }
+    mod vtt_writer {
+        use super::*;
+        #[test]
+        fn write() {
+            let cap = Caption {
+                header: None,
+                blocks: vec!(
+                    CaptionBlock {
+                        speaker: Some("Pete Molfese".to_string()),
+                        start: SimpleTime::from_milliseconds(0),
+                        end: SimpleTime::from_milliseconds(1000),
+                        text: "Hello, world!".to_string(),
+                    }
+                )
+            };
+            let should_get = format!(
+                "WEBVTT\n\n{}\n{} {} --> {}\n{}\n",
+                1,
+                "Pete Molfese",
+                "00:00:00.000",
+                "00:00:01.000",
+                "Hello, world!"
+            );
+            assert_eq!(VttWriter::write(&cap), should_get);
+        }
+        #[test]
+        fn write_with_header() {
+            let cap = Caption {
+                header: Some("This is a VERY cool test".to_string()),
+                blocks: vec!(
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(0),
+                        end: SimpleTime::from_milliseconds(1500),
+                        text: "We're doing very cool things".to_string(),
+                    },
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(1500),
+                        end: SimpleTime::from_milliseconds(2500),
+                        text: "The COOLEST things!".to_string(),
+                    }
+                ),
+            };
+            let should_get = format!(
+                "{}\n\nWEBVTT\n\n{}\n{} --> {}\n{}\n\n{}\n{} --> {}\n{}\n",
+                "This is a VERY cool test",
+                1,
+                "00:00:00.000",
+                "00:00:01.500",
+                "We're doing very cool things",
+                2,
+                "00:00:01.500",
+                "00:00:02.500",
+                "The COOLEST things!"
+            );
+            assert_eq!(VttWriter::write(&cap), should_get);
+        }
+
+
+    }
     mod vtt_parser {
         use super::*;
         #[test]
@@ -700,7 +807,7 @@ mod test {
                 "Hello, welcome to the caption tool!"
             );
             let s = format!("WEBVTT\n{}", block);
-            let cap = VttParser::parse(ParseFrom::Content(&s))
+            let cap = VttParser::parse(&s)
                 .expect("Should have passed!");
             assert_eq!(cap.header, None);
             let expected_block = CaptionBlock::from(
