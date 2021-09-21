@@ -912,6 +912,11 @@ impl CaptionBlock {
     pub fn end(&self) -> SimpleTime {
         self.end.clone()
     }
+    /// Get the length of this caption block in milliseconds
+    pub fn length_millis(&self) -> usize {
+        // We're guaranteed that end > start, no need to worry about negatives
+        self.end.to_milliseconds() - self.start.to_milliseconds()
+    }
     /// Offset the times in this caption block
     pub fn offset_milliseconds(&mut self, n: isize) -> Result<(), NegativeSimpleTime> {
         self.start.offset(n)?;
@@ -1081,6 +1086,16 @@ mod test {
             assert_eq!(c.blocks[3].start.to_milliseconds(), 3200);
             assert_eq!(c.blocks[3].end.to_milliseconds(), 4400);
 
+        }
+        #[test]
+        fn get_cb_length() {
+            let cb = CaptionBlock {
+                speaker: None,
+                start: SimpleTime::from_milliseconds(1500),
+                end: SimpleTime::from_milliseconds(2250),
+                text: "Blanky McBlankface".to_string(),
+            };
+            assert_eq!(cb.length_millis(), 750);
         }
     }
     mod vtt_writer {
