@@ -1,13 +1,13 @@
 use std::{error::Error, path::PathBuf};
 use clap::{App, Arg, SubCommand};
-use offset_caption::{
+use ccap::{
     write_caption, parse_file,
     VttParser, VttWriter, SrtWriter,
     Caption
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let matches = App::new("cptcaption")
+    let matches = App::new("Captain Caption")
                     .version("0.1")
                     .author("Joshua B. Teves <joshua.teves@nih.gov>")
                     .subcommand(

@@ -18,7 +18,7 @@ const MILLIS_PER_HOUR: usize = 60 * MILLIS_PER_MINUTE;
 /// # Examples
 /// Convert from hours, minutes, seconds, milliseconds to SimpleTime
 /// ```
-/// use offset_caption::SimpleTime;
+/// use ccap::SimpleTime;
 ///
 /// let t = SimpleTime::from_parts(1, 2, 3, 4);
 /// assert_eq!(t.hour(), 1);
@@ -29,7 +29,7 @@ const MILLIS_PER_HOUR: usize = 60 * MILLIS_PER_MINUTE;
 ///
 /// Convert from milliseconds to a SimpleTime
 /// ```
-/// use offset_caption::SimpleTime;
+/// use ccap::SimpleTime;
 ///
 /// let t = SimpleTime::from_milliseconds(47_703_450);
 /// assert_eq!(t.hour(), 13);
@@ -40,7 +40,7 @@ const MILLIS_PER_HOUR: usize = 60 * MILLIS_PER_MINUTE;
 ///
 /// Add one second to the simple time
 /// ```
-/// use offset_caption::SimpleTime;
+/// use ccap::SimpleTime;
 /// let mut t = SimpleTime::from_parts(0, 0, 0, 0);
 /// t.offset(1000).expect("We should be fine");
 /// assert_eq!(t.hour(), 0);
@@ -857,7 +857,7 @@ impl SrtWriter {
 /// # Examples
 /// Create a CaptionBlock with no speaker, from 0 seconds to 1 second, and a text of "Hello!"
 /// ```
-/// use offset_caption::{CaptionBlock, SimpleTime};
+/// use ccap::{CaptionBlock, SimpleTime};
 ///
 /// let block = CaptionBlock::from(
 ///     None,
