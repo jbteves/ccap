@@ -67,7 +67,7 @@ impl SimpleTime {
         if seconds >= 60 {
             panic!("SimpleTime requires seconds be in [0, 60] (got {})", seconds);
         }
-        if milliseconds >= 999 {
+        if milliseconds > 999 {
             panic!("SimpleTime requires milliseconds be in [0, 999] (got {})", milliseconds);
         }
 
