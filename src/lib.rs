@@ -1,6 +1,6 @@
 /// Library to help sort out a few things
 
-use std::{fmt, fs, error::Error, path::Path, ffi::OsStr};
+use std::{fmt, fs, error::Error, path::Path, ffi::OsStr, collections::HashMap};
 
 // Useful constants
 const MILLIS_PER_SECOND: usize = 1000;
@@ -966,6 +966,52 @@ impl Caption {
     /// Get the last time in milliseconds from a caption
     pub fn time_tail(&self) -> usize {
         self.blocks.iter().last().unwrap().end.to_milliseconds()
+    }
+    /// Print a summary report of this caption
+    pub fn print_report(&self) {
+        let mut map  = HashMap::new();
+        map.insert(String::from("UNKNOWN"), 0);
+        let mut total_milliseconds_talk = 0;
+
+        for block in self.blocks.iter() {
+            let talk_time = block.length_millis();
+            total_milliseconds_talk += talk_time;
+            
+            match block.speaker() {
+                Some(spk) => {
+                    if let Some(count) = map.get_mut(&spk) {
+                        *count += talk_time;
+                    } else {
+                        map.insert(spk, talk_time);
+                    }
+                },
+                None => {
+                    let x = map.get_mut(&"UNKNOWN".to_string()).unwrap();
+                    *x += talk_time;
+                },
+            }
+        }
+        let total_speakers = map.keys().collect::<Vec<&String>>().len();
+
+        // Print report header
+        println!("Start: {}", VttWriter::timestamp(&self.blocks[0].start));
+        println!("End: {}", VttWriter::timestamp(&self.blocks.iter().last().unwrap().end));
+        println!("Total talk time: {}", VttWriter::timestamp(
+                &SimpleTime::from_milliseconds(total_milliseconds_talk)));
+        if total_speakers == 1 {
+            println!("Speakers are unknown")
+        } else {
+            println!("{}", (0..35).map(|_| "-").collect::<String>());
+            println!("{:30} | % ", "Speaker");
+            println!("{}", (0..35).map(|_| "-").collect::<String>());
+            for (speaker, time) in &map {
+                if speaker == "UNKNOWN" {
+                    continue;
+                }
+                let perc_talked = (*time * 100)/ total_milliseconds_talk;
+                println!("{0:30} | {1:02}", speaker, perc_talked);
+            }
+        }
     }
     /// Concatenate captions and generate new one; does not retain header information.
     /// This is because concatenating headers doesn't necessarily make sense.

@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if let Some(info_matches) = matches.subcommand_matches("info") {
         let input = info_matches.value_of("INPUT").unwrap();
         let caption = parse_file(&input)?;
-        println!("{:?}", caption);
+        caption.print_report();
     }
     if let Some(offset_matches) = matches.subcommand_matches("offset") {
         let input = offset_matches.value_of("INPUT").unwrap();
