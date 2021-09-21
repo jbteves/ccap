@@ -1,6 +1,6 @@
-use std::error::Error;
+use std::{error::Error, path::PathBuf};
 use clap::{App, Arg, SubCommand};
-use offset_caption::{VttParser, VttWriter, Caption};
+use offset_caption::{VttParser, VttWriter, SrtWriter, Caption};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("cptcaption")
@@ -46,6 +46,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                              .takes_value(true)
                              .min_values(2)
                              .help("The files to concatenate")))
+                    .subcommand(
+                        SubCommand::with_name("convert")
+                        .about("Convert caption formats")
+                        .arg(Arg::with_name("INPUT")
+                             .takes_value(true)
+                             .required(true)
+                             .help("The file to be converted"))
+                        .arg(Arg::with_name("srt")
+                             .long("srt")
+                             .help("Convert to SRT"))
+                        .after_help("Creates a file with the extension changed. For example,\ncaption.vtt -> caption.srt"))
                     .get_matches();
    
     // Get the subcommand to run and run it
@@ -90,6 +101,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         let mega_caption = Caption::concatenate(captions);
         VttWriter::to_file(&output, &mega_caption)?;
+    }
+    if let Some(convert_matches) = matches.subcommand_matches("convert") {
+        let input = convert_matches.value_of("INPUT").unwrap();
+        let caption = VttParser::from_file(&input)?;
+        if convert_matches.is_present("srt") {
+            let mut path = PathBuf::from(&input);
+            path.set_extension("srt");
+            SrtWriter::to_file(&path.to_string_lossy(), &caption)?;
+        }
     }
 
     Ok(())

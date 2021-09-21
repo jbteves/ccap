@@ -500,6 +500,54 @@ impl VttWriter {
     }
 }
 
+/// Writer utilities for SRT files
+// TODO: add more speaker formatting options
+pub struct SrtWriter;
+
+impl SrtWriter {
+    /// Write a full VTT file to disk
+    pub fn to_file(fname: &str, cap: &Caption) -> Result<(), Box<dyn Error>> {
+        fs::write(fname, SrtWriter::write(&cap))?;
+        Ok(())
+    }
+    /// Write a full VTT file to a string
+    pub fn write(cap: &Caption) -> String {
+        let mut components: Vec<String> = Vec::with_capacity(cap.blocks.len());
+        let mut block_num = 1;
+
+        for block in cap.blocks.iter() {
+            components.push(SrtWriter::block(block, block_num));
+            block_num += 1;
+        }
+        components.join("\n")
+    }
+    /// Write a VTT block
+    fn block(cb: &CaptionBlock, n: usize) -> String {
+        let ts_start = SrtWriter::timestamp(&cb.start);
+        let ts_end = SrtWriter::timestamp(&cb.end);
+
+        format!(
+            "{}\n{}\n{}\n",
+            n,
+            format!("{} --> {}", ts_start, ts_end),
+            match &cb.speaker {
+                Some(person) => format!("[{}] {}", person, cb.text),
+                None => format!("{}", cb.text),
+            },
+        )
+    }
+    /// Write a VTT timestamp
+    fn timestamp(t: &SimpleTime) -> String {
+        format!(
+            "{:02}:{:02}:{:02},{:03}",
+            t.hour(),
+            t.minute(),
+            t.second(),
+            t.millisecond()
+        )
+    }
+}
+
         
 
 /// Caption blocks contain an optional speaker, start and end times, and the text that will be
@@ -942,6 +990,31 @@ mod test {
                 Err(VttParserError::UnexpectedEndOfFile) => {},
                 _ => panic!("Didn't get unexpected EOF {:?}", x),
             };
+        }
+    }
+    mod srt_writer {
+        use super::*;
+        #[test]
+        fn write() {
+            let cap = Caption {
+                header: None,
+                blocks: vec!(
+                    CaptionBlock {
+                        speaker: Some("Pete Molfese".to_string()),
+                        start: SimpleTime::from_milliseconds(0),
+                        end: SimpleTime::from_milliseconds(1000),
+                        text: "Hello, world!".to_string(),
+                    }
+                )
+            };
+            let should_get = format!(
+                "{}\n{} --> {}\n{}\n",
+                1,
+                "00:00:00,000",
+                "00:00:01,000",
+                "[Pete Molfese] Hello, world!"
+            );
+            assert_eq!(SrtWriter::write(&cap), should_get);
         }
     }
 }
