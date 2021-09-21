@@ -154,6 +154,23 @@ pub fn parse_file(fname: &str) -> Result<Caption, Box<dyn Error>> {
     }
 }
 
+/// General writer for any caption file
+pub fn write_caption(fname: &str, caption: &Caption) -> Result<(), Box<dyn Error>> {
+    match Path::new(&fname).extension().and_then(OsStr::to_str) {
+        Some(ext) => {
+            match ext {
+                "vtt" | "txt" => VttWriter::to_file(&fname, &caption)?,
+                "srt" => SrtWriter::to_file(&fname, &caption)?,
+                _ => Err(CaptionParserError::UnsupportedFileType(fname.to_string()))?,
+            }
+        },
+        _ => {
+            Err(CaptionParserError::UnknownExtension(fname.to_string()))?
+        },
+    }
+    Ok(())
+}
+
 /// Error for parser
 #[derive(Debug, Clone)]
 pub enum CaptionParserError {

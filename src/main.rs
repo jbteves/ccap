@@ -1,6 +1,10 @@
 use std::{error::Error, path::PathBuf};
 use clap::{App, Arg, SubCommand};
-use offset_caption::{parse_file, VttParser, VttWriter, SrtWriter, Caption};
+use offset_caption::{
+    write_caption, parse_file,
+    VttParser, VttWriter, SrtWriter,
+    Caption
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("cptcaption")
@@ -91,7 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         };
         let mut cap = parse_file(&input)?;
         cap.offset_milliseconds(offset)?;
-        VttWriter::to_file(&output, &cap)?;
+        write_caption(&output, &cap)?;
     }
     if let Some(concatenate_matches) = matches.subcommand_matches("concatenate") {
         let output = concatenate_matches.value_of("OUTPUT").unwrap();
@@ -103,7 +107,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             captions.push(parse_file(&f)?);
         }
         let mega_caption = Caption::concatenate(captions);
-        VttWriter::to_file(&output, &mega_caption)?;
+        write_caption(&output, &mega_caption)?;
     }
     if let Some(convert_matches) = matches.subcommand_matches("convert") {
         let input = convert_matches.value_of("INPUT").unwrap();
