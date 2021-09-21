@@ -1,6 +1,6 @@
 /// Library to help sort out a few things
 
-use std::{fmt, fs, error::Error};
+use std::{fmt, fs, error::Error, path::Path, ffi::OsStr};
 
 // Useful constants
 const MILLIS_PER_SECOND: usize = 1000;
@@ -139,6 +139,38 @@ impl fmt::Display for NegativeSimpleTime {
         write!(f, "attempted to create negative SimpleTime")
     }
 }
+
+/// General parser for any caption file
+pub fn parse_file(fname: &str) -> Result<Caption, Box<dyn Error>> {
+    match Path::new(&fname).extension().and_then(OsStr::to_str) {
+        Some(ext) => {
+            match ext {
+                "vtt" | "txt" => Ok(VttParser::from_file(fname)?),
+                "srt" => Ok(SrtParser::from_file(fname)?),
+                _ => Err(CaptionParserError::UnsupportedFileType(ext.to_string()))?,
+            }
+        }
+        None => Err(CaptionParserError::UnknownExtension(fname.to_string()))?,
+    }
+}
+
+/// Error for parser
+#[derive(Debug, Clone)]
+pub enum CaptionParserError {
+    UnsupportedFileType(String),
+    UnknownExtension(String)
+}
+
+impl Error for CaptionParserError {}
+impl fmt::Display for CaptionParserError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CaptionParserError::UnsupportedFileType(s) => write!(f, "type {} is unsupported", s),
+            CaptionParserError::UnknownExtension(s) => write!(f, "unknown extension for file {}", s),
+        }
+    }
+}
+
 
 /// Type for parsing VTT caption files.
 /// This parser assumes a format of:
@@ -499,6 +531,257 @@ impl VttWriter {
         }
     }
 }
+
+/// Parser utilities for SRT files
+/// This parser assumes a format of:
+/// - Blocks of caption with
+///   - Line 1: Block Number
+///   - Line 2: HH:MM:SS.mmm --> HH:MM:SS.mmm
+///   - Line 3: [Speaker] subtitle
+///     - Note: Speaker is optional, and will be parsed if enclosed in brackets. If the speaker is
+///       identified in some other way, then it will be displayed for other formats, but may not be
+///       formatted as the speaker.
+/// and will return a Caption object when asked to parse.
+pub struct SrtParser;
+
+impl SrtParser {
+    /// Parse File into a Caption
+    pub fn from_file(fname: &str) -> Result<Caption, Box<dyn Error>> {
+        let s = fs::read_to_string(fname)?;
+        let cap = SrtParser::parse(&s)?;
+        Ok(cap)
+    }
+    /// Parse a Caption
+    pub fn parse(contents: &str) -> Result<Caption, SrtParserError> {
+        // Inject a newline for simplicity in processing
+        let contents = &("\n".to_owned() + contents);
+        let total_lines = contents.lines().count();
+        // Figure out if the total number of lines remaining is going to break into even blocks
+        let blocks_remaining = total_lines / 4;
+        if (blocks_remaining as f32) != (total_lines as f32 ) / 4.0 {
+            return Err(SrtParserError::UnexpectedEndOfFile)?;
+        }
+        // We have the right number of blocks.
+        // Vector for storing CaptionBlock items
+        let mut blocks: Vec<CaptionBlock> = Vec::with_capacity(blocks_remaining);
+        // Create a vector of all remaining lines, prepending one blank line
+        let lines: Vec<&str> = contents.lines().collect();
+        // Iterate and process blocks
+        for i in 0..blocks_remaining {
+            let block_line_start = i * 4;
+            let block_line_end = (i * 4) + 3;
+            let current_block = lines[block_line_start..(block_line_end + 1)]
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<String>>()
+                .join("\n");
+            blocks.push(SrtParser::block(&current_block)?);
+        }
+        // We're all good, pass along the caption object
+        Ok(
+            Caption {
+                header: None,
+                blocks
+            }
+        )
+    }
+    /// Parse a block
+    fn block(s: &str) -> Result<CaptionBlock, SrtParserError> {
+        // Make sure we have exactly four lines to parse
+        if s.lines().count() != 4 {
+            return Err(SrtParserError::UnexpectedEndOfFile);
+        }
+
+        // Make an iterator and view line by line
+        let mut s_iter = s.lines();
+        match s_iter.next() {
+            Some("") => {},
+            Some(s) => {
+                return Err(SrtParserError::ExpectedBlankLine(s.to_string()));
+            },
+            _ => { return Err(SrtParserError::UnexpectedEndOfFile) },
+        }
+        let block_line = s_iter.next().ok_or(SrtParserError::UnexpectedEndOfFile)?;
+        let _ = SrtParser::block_number(block_line)?;
+        let header_line = s_iter.next().ok_or(SrtParserError::UnexpectedEndOfFile)?;
+        let (start, end) = SrtParser::block_timestamps(header_line)?;
+        let text_line = s_iter.next().ok_or(SrtParserError::UnexpectedEndOfFile)?;
+        let (speaker, text) = SrtParser::block_text(text_line)?;
+        Ok(CaptionBlock {
+            speaker,
+            start,
+            end,
+            text,
+        })
+    }
+    /// Parse a string slice into a block number
+    fn block_number(s: &str) -> Result<usize, SrtParserError> {
+        let r = s.parse::<usize>();
+        match r {
+            Ok(n) => Ok(n),
+            Err(_) => Err(SrtParserError::ExpectedBlockNumber(String::from(s))),
+        }
+    }
+    /// Parse an SRT timestamp
+    pub fn block_timestamp(s: &str) -> Result<SimpleTime, SrtParserError> {
+        let vtt_timestamp_len: usize = 12;
+        if s.len() != vtt_timestamp_len {
+            return Err(SrtParserError::InvalidTimestamp(String::from(s)));
+        }
+        // We have correct length, parse
+        // Get hours
+        let hours = match s[0..2].parse::<usize>() {
+            Ok(n) => n,
+            Err(_) => {
+                return Err(SrtParserError::InvalidTimestamp(String::from(s)));
+            },
+        };
+        // Check first colon
+        if s.chars().nth(2).unwrap() != ':' {
+            return Err(SrtParserError::InvalidTimestamp(
+                    String::from(s)));
+        }
+        // Get minutes
+        let minutes = match s[3..5].parse::<usize>() {
+            Ok(n) => n,
+            Err(_) => {
+                return Err(SrtParserError::InvalidTimestamp(String::from(s)));
+            },
+        };
+        // Check second colon
+        if s.chars().nth(2).unwrap() != ':' {
+            return Err(SrtParserError::InvalidTimestamp(
+                    String::from(s)));
+        }
+        // Get seconds
+        let seconds = match s[6..8].parse::<usize>() {
+            Ok(n) => {
+                n
+            },
+            Err(_) => {
+                return Err(SrtParserError::InvalidTimestamp(String::from(s)));
+            },
+        };
+        // Check comma
+        if s.chars().nth(8).unwrap() != ',' {
+             return Err(SrtParserError::InvalidTimestamp(
+                    String::from(s)));
+        }
+        // Get milliseconds
+        let milliseconds = match s[9..12].parse::<usize>() {
+            Ok(n) => n,
+            Err(_) => {
+                return Err(SrtParserError::InvalidTimestamp(String::from(s)));
+            },
+        };
+
+        Ok(
+            SimpleTime::from_parts(
+                hours,
+                minutes,
+                seconds,
+                milliseconds
+            )
+        )
+    }
+    /// Parse the remainder of a line for start, end timestamps
+    fn block_timestamps(s: &str) -> Result<(SimpleTime, SimpleTime), SrtParserError> {
+        // Make sure we have exactly three "words"
+        let total_words = s.split(' ').count();
+        if total_words == 3 {
+            // We're good to go, probably
+            let first = s.split(' ').nth(0);
+            let second = s.split(' ').nth(1);
+            let third = s.split(' ').nth(2);
+            if let Some(ts1) = first {
+                if let Some("-->") = second {
+                    if let Some(ts2) = third {
+                        // Need to process the timestamps
+                        let start = SrtParser::block_timestamp(ts1)?;
+                        let end = SrtParser::block_timestamp(ts2)?;
+                        return Ok((start, end));
+
+                    } else {
+                        return Err(
+                            SrtParserError::InvalidTimestamp(
+                                String::from(s)));
+                    }
+                } else {
+                    return Err(
+                        SrtParserError::InvalidTimestamp(
+                            String::from(s)));
+                }
+            } else {
+                return Err(SrtParserError::InvalidTimestamp(
+                    String::from(s)));
+            }
+        } else {
+            return Err(
+                SrtParserError::InvalidTimestamp(String::from(s)));
+        }
+    }
+    /// Parse the text and optional speaker of a block
+    fn block_text(s: &str) -> Result<(Option<String>, String), SrtParserError> {
+        // See if we have a speaker
+        if let Some(n0) = s.chars().position(|x| x == '[') {
+            if n0 != 0 {
+                return Err(SrtParserError::InvalidSpeakerPlacement(s.to_string()));
+            }
+            if let Some(n1) = s.chars().position(|x| x == ']') {
+                // Valid Speaker
+                let speaker = s.get((n0 + 1)..n1).unwrap().to_string();
+                let text = s.get((n1 + 2)..).unwrap().to_string();
+                return Ok((Some(speaker.to_string()), text.to_string()));
+            }
+            else {
+                return Err(SrtParserError::InvalidSpeakerPlacement(s.to_string()));
+            }
+        }
+        // No Speaker
+        Ok((None, s.to_string()))
+    }
+}
+
+/// Error type for SrtParser
+#[derive(Debug, Clone)]
+pub enum SrtParserError {
+    UnexpectedEndOfFile,
+    FileNotReadable(String),
+    ExpectedBlankLine(String),
+    ExpectedBlockNumber(String),
+    BlockHeaderInvalid(String),
+    InvalidTimestamp(String),
+    InvalidSpeakerPlacement(String),
+}
+
+impl fmt::Display for SrtParserError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            SrtParserError::UnexpectedEndOfFile => write!(f, "unexpected end of file"),
+            SrtParserError::FileNotReadable(s) => {
+                write!(f, "could not read file {}", s)
+            },
+            SrtParserError::ExpectedBlankLine(s) => {
+                write!(f, "expected blank line, got {}", s)
+            },
+            SrtParserError::ExpectedBlockNumber(s) => {
+                write!(f, "expected SRT block number, got {}", s)
+            },
+            SrtParserError::BlockHeaderInvalid(s) => {
+                write!(f, "invalid SRT block from line {}", s)
+            },
+            SrtParserError::InvalidTimestamp(s) => {
+                write!(f, "invalid SRT block from word {}", s)
+            },
+            SrtParserError::InvalidSpeakerPlacement(s) => {
+                write!(f, "invalid SRT speaker placement in line {}", s)
+            },
+        }
+    }
+}
+
+impl Error for SrtParserError {}
+
 
 /// Writer utilities for SRT files
 // TODO: add more speaker formatting options
@@ -988,6 +1271,118 @@ mod test {
             let x = VttParser::block("thing\n");
             match x {
                 Err(VttParserError::UnexpectedEndOfFile) => {},
+                _ => panic!("Didn't get unexpected EOF {:?}", x),
+            };
+        }
+    }
+    mod srt_parser {
+        use super::*;
+        #[test]
+        fn parse() {
+            let s = format!(
+                "{}\n{}\n{}\n",
+                1,
+                "00:00:00,000 --> 00:00:01,000",
+                "[Peter Molfese] Hello, welcome to the caption tool!"
+            );
+            let cap = SrtParser::parse(&s)
+                .expect("Should have passed!");
+            assert_eq!(cap.header, None);
+            let expected_block = CaptionBlock::from(
+                Some("Peter Molfese".to_string()),
+                SimpleTime::from_milliseconds(0),
+                SimpleTime::from_milliseconds(1000),
+                "Hello, welcome to the caption tool!".to_string()
+            ).unwrap();
+            assert_eq!(cap.blocks.len(), 1);
+            let received_block = &cap.blocks[0];
+            assert_eq!(expected_block.speaker, received_block.speaker);
+            assert_eq!(expected_block.start, received_block.start);
+            assert_eq!(expected_block.end, received_block.end);
+            assert_eq!(expected_block.text, received_block.text);
+        }
+        #[test]
+        fn test_parse_block_no() {
+            let n = SrtParser::block_number("1").expect("");
+            assert_eq!(n, 1);
+
+            let n = SrtParser::block_number("a");
+            match n {
+                Ok(_) => panic!("Test failure! SrtParser parses 'a'"),
+                Err(e) => {
+                    match e {
+                        SrtParserError::UnexpectedEndOfFile => {
+                            panic!("Test failure! SrtParser wrong err");
+                        },
+                        SrtParserError::ExpectedBlockNumber(s) => {
+                            assert_eq!(s, "a");
+                        },
+                        _ => panic!("Unknown test failure")
+                    };
+                },
+            };
+        }
+        #[test]
+        fn test_parse_block_timestamps() {
+            let test_str_1 = "00:00:00,000 --> 00:00:01,001";
+            let r = SrtParser::block_timestamps(test_str_1);
+            match r {
+                Ok((start, end)) => {
+                    assert_eq!(start.to_milliseconds(), 0);
+                    assert_eq!(end.to_milliseconds(), 1001);
+                }
+                _ => panic!("Test failed"),
+            }
+        }
+        #[test]
+        fn test_parse_block_timestamps_missing_start() {
+            // Test that we fail for no block start
+            let test_str_3 = "--> 00:00:01,001";
+            let r = SrtParser::block_timestamps(test_str_3);
+            match r {
+                Ok((start, end)) => {
+                    panic!("Parsed {:?}, {:?} when should have failed", start, end);
+                },
+                Err(e) => {
+                    match e {
+                        SrtParserError::InvalidTimestamp(_s) => {},
+                        _ => panic!("Test failed in unexpected way"),
+                    };
+                },
+            };
+        }
+        #[test]
+        fn test_parse_block_text() {
+            // Test to make sure we parse a line of text
+            let spk = "Peter Molfese";
+            let txt = "The quick brown fox jumps over the lazy dog.";
+
+            let test_str = format!("[{}] {}", spk, txt);
+            let (speaker, text) = SrtParser::block_text(&test_str)
+                .expect("Should be fine");
+            assert_eq!(speaker, Some(spk.to_string()));
+            assert_eq!(text, txt.to_string());
+        }
+        #[test]
+        fn test_parse_block() {
+            // Test to make sure we parse an entire block
+            let start = "00:00:00,000";
+            let end = "00:00:01,000";
+            let text = "The quick brown fox jumps over the lazy dog";
+            let test_input = format!("\n{}\n{} --> {}\n{}\n", 1, start, end, text);
+            let cb = SrtParser::block(&test_input)
+                .expect("Failed test");
+            assert_eq!(cb.start().to_milliseconds(), 0);
+            assert_eq!(cb.end().to_milliseconds(), 1000);
+            assert_eq!(cb.speaker(), None);
+            assert_eq!(cb.text(), text);
+        }
+        #[test]
+        fn test_parse_block_fails_insufficient_lines() {
+            // Test to make sure we fail for no blank
+            let x = SrtParser::block("thing\n");
+            match x {
+                Err(SrtParserError::UnexpectedEndOfFile) => {},
                 _ => panic!("Didn't get unexpected EOF {:?}", x),
             };
         }

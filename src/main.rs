@@ -1,6 +1,6 @@
 use std::{error::Error, path::PathBuf};
 use clap::{App, Arg, SubCommand};
-use offset_caption::{VttParser, VttWriter, SrtWriter, Caption};
+use offset_caption::{parse_file, VttParser, VttWriter, SrtWriter, Caption};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("cptcaption")
@@ -56,13 +56,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .arg(Arg::with_name("srt")
                              .long("srt")
                              .help("Convert to SRT"))
+                        .arg(Arg::with_name("vtt")
+                             .long("vtt")
+                             .help("Convert to VTT"))
                         .after_help("Creates a file with the extension changed. For example,\ncaption.vtt -> caption.srt"))
                     .get_matches();
    
     // Get the subcommand to run and run it
     if let Some(info_matches) = matches.subcommand_matches("info") {
         let input = info_matches.value_of("INPUT").unwrap();
-        let caption = VttParser::from_file(&input)?;
+        let caption = parse_file(&input)?;
         println!("{:?}", caption);
     }
     if let Some(offset_matches) = matches.subcommand_matches("offset") {
@@ -86,7 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 offset_millis
             }
         };
-        let mut cap = VttParser::from_file(&input)?;
+        let mut cap = parse_file(&input)?;
         cap.offset_milliseconds(offset)?;
         VttWriter::to_file(&output, &cap)?;
     }
@@ -97,18 +100,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect();
         let mut captions: Vec<Caption> = Vec::with_capacity(files.len());
         for f in files.iter() {
-            captions.push(VttParser::from_file(&f)?);
+            captions.push(parse_file(&f)?);
         }
         let mega_caption = Caption::concatenate(captions);
         VttWriter::to_file(&output, &mega_caption)?;
     }
     if let Some(convert_matches) = matches.subcommand_matches("convert") {
         let input = convert_matches.value_of("INPUT").unwrap();
-        let caption = VttParser::from_file(&input)?;
+        let caption = parse_file(&input)?;
         if convert_matches.is_present("srt") {
             let mut path = PathBuf::from(&input);
             path.set_extension("srt");
             SrtWriter::to_file(&path.to_string_lossy(), &caption)?;
+        }
+        if convert_matches.is_present("vtt") {
+        let mut path = PathBuf::from(&input);
+            path.set_extension("vtt");
+            VttWriter::to_file(&path.to_string_lossy(), &caption)?;
         }
     }
 
