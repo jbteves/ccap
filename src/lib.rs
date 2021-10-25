@@ -48,7 +48,7 @@ const MILLIS_PER_HOUR: usize = 60 * MILLIS_PER_MINUTE;
 /// assert_eq!(t.second(), 1);
 /// assert_eq!(t.millisecond(), 0);
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SimpleTime {
     hours: usize,
     minutes: usize,
@@ -923,6 +923,25 @@ impl CaptionBlock {
         self.end.offset(n)?;
         Ok(())
     }
+    /// Set the start time
+    pub fn set_start(&mut self, start: SimpleTime) -> Result<(), NegativeSimpleTime> {
+        if start.to_milliseconds() <= self.end.to_milliseconds() {
+            self.start = start;
+            Ok(())
+        }
+        else {
+            Err(NegativeSimpleTime)
+        }
+    }
+    pub fn set_end(&mut self, end: SimpleTime) -> Result<(), NegativeSimpleTime> {
+        if end.to_milliseconds() >= self.start.to_milliseconds() {
+            self.end = end;
+            Ok(())
+        }
+        else {
+            Err(NegativeSimpleTime)
+        }
+    }
 }
 
 /// Error types for CaptionBlock
@@ -1156,15 +1175,44 @@ mod test {
             assert_eq!(c.blocks[3].end.to_milliseconds(), 4400);
 
         }
-        #[test]
-        fn get_cb_length() {
-            let cb = CaptionBlock {
+        fn toy_cb() -> CaptionBlock {
+            CaptionBlock {
                 speaker: None,
                 start: SimpleTime::from_milliseconds(1500),
                 end: SimpleTime::from_milliseconds(2250),
                 text: "Blanky McBlankface".to_string(),
-            };
+            }
+        }
+        #[test]
+        fn get_cb_length() {
+            let cb = toy_cb();
             assert_eq!(cb.length_millis(), 750);
+        }
+        #[test]
+        fn set_start() {
+            let mut cb = toy_cb();
+            assert!(matches!(
+                cb.set_start(SimpleTime::from_milliseconds(1250)),
+                Ok(())
+            ));
+            assert_eq!(cb.start().to_milliseconds(), 1250);
+            assert!(matches!(
+                cb.set_start(SimpleTime::from_milliseconds(2251)),
+                Err(NegativeSimpleTime)
+            ));
+        }
+        #[test]
+        fn set_end() {
+            let mut cb = toy_cb();
+            assert!(matches!(
+                    cb.set_end(SimpleTime::from_milliseconds(2000)),
+                    Ok(())
+            ));
+            assert_eq!(cb.end().to_milliseconds(), 2000);
+            assert!(matches!(
+                cb.set_end(SimpleTime::from_milliseconds(100)),
+                Err(NegativeSimpleTime),
+            ));
         }
     }
     mod vtt_writer {
