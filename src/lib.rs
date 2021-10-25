@@ -1,6 +1,6 @@
 /// Library to help sort out a few things
 
-use std::{fmt, fs, error::Error, path::Path, ffi::OsStr, collections::HashMap};
+use std::{fmt, fs, error::Error, path::Path, ffi::OsStr, collections::HashMap, cmp::Ordering};
 
 // Useful constants
 const MILLIS_PER_SECOND: usize = 1000;
@@ -127,6 +127,13 @@ impl SimpleTime {
         }
     }
 }
+
+impl PartialOrd for SimpleTime {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.to_milliseconds().partial_cmp(&other.to_milliseconds())
+    }
+}
+
 
 /// Error type for trying to make a negative SimpleTime
 #[derive(Debug, Clone)]
@@ -1108,6 +1115,15 @@ mod test {
                 Ok(()) => panic!("Test failure; was okay going negative"),
                 Err(_) => assert_eq!(0, 0),
             };
+        }
+        #[test]
+        fn partial_eq() {
+            let a = super::SimpleTime::from_milliseconds(250);
+            let b = super::SimpleTime::from_milliseconds(500);
+            let c = super::SimpleTime::from_milliseconds(500);
+            assert_eq!(b, c);
+            assert_eq!(a < b, true);
+            assert_eq!(a == b, false);
         }
     }
     mod caption {
