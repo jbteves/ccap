@@ -1009,6 +1009,40 @@ impl Caption {
     pub fn time_tail(&self) -> usize {
         self.blocks.iter().last().unwrap().end.to_milliseconds()
     }
+    /// Crop the caption from one time to another
+    // TODO: add examples
+    pub fn crop(&mut self, from: Option<SimpleTime>, to: Option<SimpleTime>) {
+        let from_time = match from {
+            Some(t) => t,
+            None => SimpleTime::from_milliseconds(0),
+        };
+        let to_time = match to {
+            Some(t) => t,
+            None => {
+                // Get the very last timestamp available
+                SimpleTime::from_milliseconds(self.time_tail())
+            }
+        };
+        let swapped = from_time.to_milliseconds() > to_time.to_milliseconds();
+        let start_time = if !swapped { from_time } else { to_time };
+        let end_time = if !swapped { to_time } else { from_time };
+        // Find positions of first and last blocks to be included
+        let pos_start = self.blocks.iter()
+            .position(|x| x.end() >= start_time)
+            .unwrap();
+        let pos_end = self.blocks.iter()
+            .rposition(|x| x.start() <= end_time)
+            .unwrap();
+        // See if the end block needs to be truncated
+        if self.blocks[pos_end].end() > end_time {
+            self.blocks[pos_end].set_end(end_time).unwrap();
+        }
+        if self.blocks[pos_start].start() < start_time {
+            self.blocks[pos_start].set_start(start_time).unwrap();
+        }
+        self.blocks = self.blocks[pos_start..pos_end + 1].to_vec();
+        self.offset_milliseconds(0 - start_time.to_milliseconds() as isize).unwrap();
+    }
     /// Print a summary report of this caption
     pub fn print_report(&self) {
         let mut map  = HashMap::new();
@@ -1142,6 +1176,112 @@ mod test {
             c.offset_milliseconds(500).expect("Should be fine");
             assert_eq!(c.blocks[0].start.to_milliseconds(), 500);
             assert_eq!(c.blocks[0].end.to_milliseconds(), 1500);
+        }
+        fn toy_caption() -> Caption {
+            Caption {
+                header: None,
+                blocks: vec!(
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(0),
+                        end: SimpleTime::from_milliseconds(1000),
+                        text: "John Dies at the End".to_string(),
+                    },
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(1500),
+                        end: SimpleTime::from_milliseconds(2000),
+                        text: "a".to_string(),
+                    },
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(2500),
+                        end: SimpleTime::from_milliseconds(3000),
+                        text: "b".to_string(),
+                    },
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(3500),
+                        end: SimpleTime::from_milliseconds(4000),
+                        text: "a".to_string(),
+                    },
+                    CaptionBlock {
+                        speaker: None,
+                        start: SimpleTime::from_milliseconds(4500),
+                        end: SimpleTime::from_milliseconds(5000),
+                        text: "b".to_string(),
+                    },
+                )
+            }
+        }
+        #[test]
+        fn crop_caption_from_only() {
+            // Crop from 500 milliseconds to truncate first block
+            let mut c = toy_caption();
+            c.crop(
+                Some(SimpleTime::from_milliseconds(500)),
+                None
+            );
+            assert_eq!(c.blocks.len(), 5);
+            assert_eq!(c.blocks[0].start.to_milliseconds(), 0);
+            assert_eq!(c.blocks[0].end.to_milliseconds(), 500);
+            assert_eq!(c.blocks[4].start.to_milliseconds(), 4000);
+            assert_eq!(c.blocks[4].end.to_milliseconds(), 4500);
+        }
+        #[test]
+        fn crop_caption_drop_first() {
+            // Crop from 1250 milliseconds, dropping first block
+            let mut c = toy_caption();
+            c.crop(
+                Some(SimpleTime::from_milliseconds(1250)),
+                None
+            );
+            assert_eq!(c.blocks.len(), 4);
+            assert_eq!(c.blocks[0].start.to_milliseconds(), 250);
+            assert_eq!(c.blocks[0].end.to_milliseconds(), 750);
+            assert_eq!(c.blocks[3].start.to_milliseconds(), 3250);
+            assert_eq!(c.blocks[3].end.to_milliseconds(), 3750);
+        }
+        #[test]
+        fn crop_caption_drop_last() {
+            // Crop from 4250 milliseconds, dropping last block
+            let mut c = toy_caption();
+            c.crop(
+                None,
+                Some(SimpleTime::from_milliseconds(4250)),
+            );
+            assert_eq!(c.blocks.len(), 4);
+            assert_eq!(c.blocks[0].start.to_milliseconds(), 0);
+            assert_eq!(c.blocks[0].end.to_milliseconds(), 1000);
+            assert_eq!(c.blocks[3].start.to_milliseconds(), 3500);
+            assert_eq!(c.blocks[3].end.to_milliseconds(), 4000);
+        }
+
+        #[test]
+        fn crop_caption_truncate_last() {
+            // Crop after 4750 milliseconds to truncate last block
+            let mut c = toy_caption();
+            c.crop(
+                None,
+                Some(SimpleTime::from_milliseconds(4750))
+            );
+            assert_eq!(c.blocks.len(), 5);
+            assert_eq!(c.blocks[4].start.to_milliseconds(), 4500);
+            assert_eq!(c.blocks[4].end.to_milliseconds(), 4750);
+        }
+        #[test]
+        fn crop_caption_drop_many() {
+            // Crop between 2750 milliseconds and 3750 milliseconds
+            let mut c = toy_caption();
+            c.crop(
+                Some(SimpleTime::from_milliseconds(2750)),
+                Some(SimpleTime::from_milliseconds(3750))
+            );
+            assert_eq!(c.blocks.len(), 2);
+            assert_eq!(c.blocks[0].start.to_milliseconds(), 0);
+            assert_eq!(c.blocks[0].end.to_milliseconds(), 250);
+            assert_eq!(c.blocks[1].start.to_milliseconds(), 750);
+            assert_eq!(c.blocks[1].end.to_milliseconds(), 1000);
         }
         #[test]
         fn concatenate_captions() {

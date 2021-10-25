@@ -1,10 +1,27 @@
 use std::{error::Error, path::PathBuf};
 use clap::{App, Arg, SubCommand};
 use ccap::{
+    SimpleTime,
     write_caption, parse_file,
     VttParser, VttWriter, SrtWriter,
     Caption
 };
+
+fn parse_time(time: Option<&str>, as_millis: bool) -> Result<Option<SimpleTime>, Box<dyn Error>> {
+    let t = match time {
+        Some(t) => {
+            if as_millis {
+                Some(SimpleTime::from_milliseconds(t.parse::<usize>()?))
+            }
+            else {
+                Some(VttParser::block_timestamp(&t)?)
+            }
+        },
+        None => None,
+    };
+    Ok(t)
+}
+
 
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("Captain Caption")
@@ -64,6 +81,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                              .long("vtt")
                              .help("Convert to VTT"))
                         .after_help("Creates a file with the extension changed. For example,\ncaption.vtt -> caption.srt"))
+                    .subcommand(
+                        SubCommand::with_name("crop")
+                        .about("Crop a caption")
+                        .arg(Arg::with_name("INPUT")
+                             .takes_value(true)
+                             .help("The input filename"))
+                        .arg(Arg::with_name("OUTPUT")
+                             .takes_value(true)
+                             .help("The output filename"))
+                        .arg(Arg::with_name("millis")
+                             .long("millis")
+                             .help("Supply offset in milliseconds instead"))
+                        .arg(Arg::with_name("from")
+                             .long("from")
+                             .takes_value(true)
+                             .required_unless("to")
+                             .help("Time to crop from (inclusive)"))
+                        .arg(Arg::with_name("to")
+                             .long("to")
+                             .takes_value(true)
+                             .required_unless("from")
+                             .help("Time to crop to (inclusive)"))
+                        .after_help("Creates a new file that is cropped"))
                     .get_matches();
    
     // Get the subcommand to run and run it
@@ -123,6 +163,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             path.set_extension("vtt");
             VttWriter::to_file(&path.to_string_lossy(), &caption)?;
         }
+    }
+    if let Some(crop_matches) = matches.subcommand_matches("crop") {
+        let input = crop_matches.value_of("INPUT").unwrap();
+        let output = crop_matches.value_of("OUTPUT").unwrap();
+        let mut caption = parse_file(&input)?;
+        let use_millis = crop_matches.is_present("millis");
+        let from = parse_time(crop_matches.value_of("from"), use_millis)?;
+        let to = parse_time(crop_matches.value_of("to"), use_millis)?;
+        caption.crop(from, to);
+        write_caption(&output, &caption)?;
     }
 
     Ok(())
